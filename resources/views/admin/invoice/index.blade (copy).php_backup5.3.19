@@ -1,0 +1,165 @@
+@extends('admin.faq.template')
+
+@section('body')
+
+<h1 class="page-title">Invoice
+    <!-- 
+        <small></small>
+    @if(isSuperAdmin())
+    <a href="{{ route('invoice.create') }}" class="btn btn-primary float-right"> Create </a>
+    @endif
+    -->
+</h1>
+
+<div class="row">
+    <div class="col-lg-3 col-md-3 col-sm-6 col-xs-12">
+        <a class="dashboard-stat dashboard-stat-v2 red" >
+            <div class="visual">
+                <i class="fa fa-gbp"></i>
+            </div>
+            <div class="details">
+                <div class="number">
+                    {{ env('CURRENCY_SYM') }}<span data-counter="counterup" data-value="<?= $finalinvoiceprice ?>">0</span> 
+                </div>
+                <div class="desc">Total Unpaid Invoices</div>
+            </div>
+        </a>
+    </div>
+    <div class="col-lg-3 col-md-3 col-sm-6 col-xs-12">
+        <a class="dashboard-stat dashboard-stat-v2 green"  >
+            <div class="visual">
+                <i class="fa fa-gbp"></i>
+            </div>
+            <div class="details">
+                <div class="number">
+                    <span data-counter="counterup" data-value="{{ $unpaidbookingCount }}">0</span>
+                </div>
+                <div class="desc">Unpaid Invoices</div>
+            </div>
+        </a>
+    </div> 
+    <div class="col-lg-3 col-md-3 col-sm-6 col-xs-12">
+        <a class="dashboard-stat dashboard-stat-v2 purple" >
+            <div class="visual">
+                <i class="fa fa-gbp"></i>
+            </div>
+            <div class="details">
+                <div class="number"> 
+                    {{ env('CURRENCY_SYM') }}  <span data-counter="counterup" data-value="{{ $previousMonthRevenue }}"></span> </div>
+                <div class="desc">Total revenue in previous month</div>
+            </div>
+        </a>
+    </div>
+    <div class="col-lg-3 col-md-3 col-sm-6 col-xs-12">
+        <a class="dashboard-stat dashboard-stat-v2 blue" >
+            <div class="visual">
+                <i class="fa fa-gbp"></i>
+            </div>
+            <div class="details">
+                <div class="number"> 
+                    {{ env('CURRENCY_SYM') }}   <span data-counter="counterup" data-value="{{ $currentMonthRevenue }}"></span> </div>
+                <div class="desc">Total Revenue in month</div>
+            </div>
+        </a>
+    </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</div>
+<div class="row">
+    <div class="col-md-12">
+        <div class="portlet box green">
+            <div class="portlet-title">
+                <div class="caption">
+                    <i class="fa fa-cogs"></i>
+                    <?php
+                    if ($uninvoiced) {
+                        echo "Uninvoiced";
+                    } else {
+                        echo "Unpaid Invoices";
+                    }
+                    ?>
+                </div>
+            </div>
+            <div class="portlet-body flip-scroll">
+                <table class="table table-bordered table-striped table-condensed flip-content">
+                    <thead class="flip-content">
+                        <tr>
+                            <th>Group Invoice ID</th>
+                            <th>Booking#</th>
+                            <th>Booking&nbsp;Time</th>
+                            <th>Final&nbsp;Pice</th>                           
+                            <th>Pickup</th>
+                            <th>Client Name </th>
+                            <th>Phone </th>
+                            <th>Drop&nbsp;Location </th>
+<!--                            <th>Payment Status</th>-->
+                            <th class="align-center" style="width: 120px">Action </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach ($unpaidmodels as $model)
+                        <tr>
+                            <td>{{ $model->group_invoice_id }}</td>
+                            <td>{{ $model->count }}</td>
+                            <td>{{ showDate($model->booking_time) }}</td>
+                            <td>{{ env('CURRENCY_SYM') }}{{ $model->final_price }}</td>
+
+                            <td><?= $model->pickup ?></td>
+                            <td>{{ @$model->client->name }}</td>
+                            <td>{{ @$model->client->phone }}</td>
+                            <td>{{ @$model->dropLocation->location_name}}</td>
+                            <!--<td><?= $model->payment_status ? "<span class='label label-sm label-success'>Paid  </span>" : "<span class='label label-sm label-danger'> Unpaid </span>" ?></td>-->
+                            <td  class="align-center actionIcon">
+                                <ul>
+                                    <li>
+                                        <a target="_blank" class="btn btn-success btn-xs" href="{{ route('invoice.preview',$model->id) }}" title="Show"><i class="fa fa-eye" aria-hidden="true"></i></a>    
+                                    </li>
+
+                                    <li>
+                                        <a class="btn btn-info btn-xs" href="{{ route('invoice.invoice',$model->id) }}" title="Invoice"><i class="fa fa-envelope-o" aria-hidden="true"></i></a>
+                                    </li>                                                                       
+                                    <li>
+                                        {!! Form::open(['method' => 'post','route' => ['change-payment-status', $model->id],'style'=>'display:inline', 'onsubmit'=>"return confirm('Paid ! Are you sure? ')"  ]) !!}
+                                        {!! Form::submit('', ['class' => 'btn btn-danger btn-xs credit-card','title'=>'Mark as Paid']) !!}
+                                        <span class="btnIcon red" title="">
+                                            <i class="fa fa-credit-card " aria-hidden="true"></i>
+                                        </span>
+                                        {!! Form::close() !!}
+
+                                    </li>   
+                                    <li>
+                                        <a target="_blank" class="btn btn-success btn-xs" href="{{ route('invoice.group-preview',$model->client_id) }}" title="Group Preview"><i class="fa fa-eye" aria-hidden="true"></i></a>    
+                                    </li>
+
+                                </ul>
+                            </td>
+                        </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+                {!! $unpaidmodels->appends(Input::except('page'))->render() !!}
+            </div>
+        </div>
+    </div>
+</div>
+@endsection

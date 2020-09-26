@@ -1,0 +1,20 @@
+RewriteEngine On
+
+# Handle Authorization Header
+RewriteCond %{HTTP:Authorization} .
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)/$ /$1 [L,R=301]
+
+
+RewriteCond %{REQUEST_URI} !(\.woff|\.woff2|\.ttf|\.css|\.js|\.png|\.mp4|\.jpeg|\.jpg|\.gif|\.log|\.csv|robots\.txt)$ [NC]
+
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^ index.php [L]
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_URI} !^/public/
+
+RewriteRule ^(css|js|images|uploads|admin|video|vendor|photos)/(.*)$ public/$1/$2 [L,NC]

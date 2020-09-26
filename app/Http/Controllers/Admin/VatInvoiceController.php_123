@@ -1,0 +1,663 @@
+<?php
+
+namespace App\Http\Controllers\admin;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use App\User;
+use Auth;
+use App\Invoice;
+use App\Booking;
+use PDF;
+use Carbon\Carbon;
+use Mail;
+use DB;
+use DbView;
+
+class InvoiceController extends Controller {
+
+    public function __construct() {
+        $this->middleware('bookingAllow', ['only' => ['create', 'store']]);
+    }
+
+    public function uninvoiced(Request $request) {
+
+        $uninvoiced = $request->uninvoiced;
+       
+        $firstDateCurrent = new Carbon('first day of this month');
+        //pr($firstDateCurrent);
+        //die();
+        $lastDateCurrent = new Carbon('last day of this month');
+
+
+        $currentMonthRevenue = \App\Booking::Franchisee()
+                ->where('payment_status', 1)
+                ->whereBetween('booking_time', [$firstDateCurrent, $lastDateCurrent])
+                ->where('trip_status', 2)
+                ->sum('invoice_price');
+           
+        $firstDate = new Carbon('first day of last month');
+        $lastDate = new Carbon('last day of last month');
+
+        $previousMonthRevenue = \App\Booking::Franchisee()
+                ->where('payment_status', 1)
+                ->whereBetween('booking_time', [$firstDate, $lastDate])
+                ->where('trip_status', 2)
+                ->sum('invoice_price');
+
+        
+        $unpaidbookingCount = $this->unpaidBookingCount();
+        
+        $finalinvoiceprice = \App\Booking::Franchisee()->where('payment_status', 0)->where('trip_status', 2)->sum('invoice_price');
+       
+        $unpaidmodels = Booking::Franchisee()
+                ->with('pickupLocation', 'dropLocation', 'client')
+                ->where('payment_status', 0)
+                ->where('trip_status', 2)
+                ->whereNull('invoiced')
+                ->paginate(20);
+       
+        return view('admin.invoice.uninvoiced', compact('unpaidmodels', 'unpaidbookingCount', 'finalinvoiceprice', 'uninvoiced', 'previousMonthRevenue', 'currentMonthRevenue'));
+    }
+
+    
+    
+    
+    public function index(Request $request) {
+
+        $uninvoiced = $request->uninvoiced;
+        
+        $firstDateCurrent = new Carbon('first day of this month');
+        $lastDateCurrent = new Carbon('last day of this month');
+
+
+        $currentMonthRevenue = \App\Booking::Franchisee()
+                ->where('payment_status', 1)
+                ->whereBetween('booking_time', [$firstDateCurrent, $lastDateCurrent])
+                ->where('trip_status', 2)
+                ->sum('final_price');
+
+
+
+        $firstDate = new Carbon('first day of last month');
+        $lastDate = new Carbon('last day of last month');
+
+        $previousMonthRevenue = \App\Booking::Franchisee()
+                ->where('payment_status', 1)
+                ->whereBetween('booking_time', [$firstDate, $lastDate])
+                ->where('trip_status', 2)
+                ->sum('final_price');
+
+        $unpaidbookingCount = $this->unpaidBookingCount();
+        $finalinvoiceprice = \App\Booking::Franchisee()->where('payment_status', 0)->where('trip_status', 2)->sum('final_price');
+
+        
+       
+        
+       //$unpaidmodels = Booking::Franchisee()->with('pickupLocation', 'dropLocation', 'client')->groupBy('client_id')->get();
+        
+
+        
+            $unpaidmodels = Booking::Franchisee()->select(DB::raw('sum(final_price) as final_price'), DB::raw('count(*) as count'),'group_invoice_id','client_id')
+                ->with('pickupLocation', 'dropLocation', 'client')                
+                ->where('payment_status', 0)
+                ->where('trip_status', 2)
+                ->where('invoiced', 1)
+                ->groupBy('group_invoice_id')            
+                ->paginate(20);
+        
+        
+        
+        //pr($unpaidmodels->toArray());
+        //die();
+        //pr($unpaidmodels->toarray()));exit;
+        return view('admin.invoice.index', compact('unpaidmodels', 'unpaidbookingCount', 'finalinvoiceprice', 'uninvoiced', 'previousMonthRevenue', 'currentMonthRevenue'));
+    }
+    
+    
+    
+    public function index__old_backup(Request $request) {
+
+        $uninvoiced = $request->uninvoiced;
+        
+        $firstDateCurrent = new Carbon('first day of this month');
+        $lastDateCurrent = new Carbon('last day of this month');
+
+
+        $currentMonthRevenue = \App\Booking::Franchisee()
+                ->where('payment_status', 1)
+                ->whereBetween('booking_time', [$firstDateCurrent, $lastDateCurrent])
+                ->where('trip_status', 2)
+                ->sum('final_price');
+
+
+
+        $firstDate = new Carbon('first day of last month');
+        $lastDate = new Carbon('last day of last month');
+
+        $previousMonthRevenue = \App\Booking::Franchisee()
+                ->where('payment_status', 1)
+                ->whereBetween('booking_time', [$firstDate, $lastDate])
+                ->where('trip_status', 2)
+                ->sum('final_price');
+
+        $unpaidbookingCount = $this->unpaidBookingCount();
+        $finalinvoiceprice = \App\Booking::Franchisee()->where('payment_status', 0)->where('trip_status', 2)->sum('final_price');
+
+        $unpaidmodels = Booking::Franchisee()
+                ->with('pickupLocation', 'dropLocation', 'client')
+                ->where('payment_status', 0)
+                ->where('trip_status', 2)
+                ->where('invoiced', 1)
+                ->paginate(20);
+        
+        //pr($unpaidmodels->toarray()));exit;
+        return view('admin.invoice.index', compact('unpaidmodels', 'unpaidbookingCount', 'finalinvoiceprice', 'uninvoiced', 'previousMonthRevenue', 'currentMonthRevenue'));
+    }
+    
+    
+    
+    
+    
+    
+    
+
+    public function paidInvoice(Request $request) {
+        $query = Booking::Franchisee();
+
+        if ($request->archive) {
+            $query->onlyTrashed();
+        }
+
+        if ($request->phone || $request->name) {
+            $query->whereHas("client", function($q) use($request) {
+                if ($request->phone) {
+                    $q->where('phone', 'LIKE', '%' . $request->phone . '%');
+                }
+                if ($request->name) {
+                    $q->where('firstname', 'LIKE', '%' . $request->name . '%')
+                            ->orWhere('surname', 'LIKE', '%' . $request->name . '%');
+                }
+            });
+        }
+        if ($request->booking_no) {
+            $query->where('group_invoice_id', $request->booking_no);
+        }
+        
+       
+        //$query->where('payment_status', 1);
+
+        //$query->with('pickupLocation', 'dropLocation', 'driver');
+        //if (!getActiveFranchisee()) {
+            //$query->with('franchisees');
+       // }
+        ////$query->whereNull('trip_status');
+       // $query->where('trip_status', 2);
+        //$models = $query->latest()->paginate(25);
+        
+        
+        $modelquery = $query->select(DB::raw('sum(final_price) as final_price'),DB::raw('sum(total_duration)as total_duration'), DB::raw('count(*) as count'),'group_invoice_id','client_id')
+        ->with('pickupLocation', 'dropLocation', 'client')                
+        ->where('payment_status', 1)
+        ->where('trip_status', 2)
+        //->where('invoiced', 1)
+        ->groupBy('group_invoice_id') ;           
+        //->paginate(20);
+        
+        
+//        ----------pdf start------
+        if ($request->downloadpdf) {
+            $models = $modelquery->get();
+            $pdf = PDF::loadView('admin.invoice.pdf-paidinvoice', ['models' => $models], [], [
+                        'margin_top' => 0,
+                        'margin_left' => 0,
+                        'margin_right' => 0,
+                        'mirrorMargins' => true,
+                        'format' => 'A4'
+            ]);
+            //return $pdf->stream('document.pdf');
+            //return $pdf->download($models->order_id . ".pdf");
+            return $pdf->download("document.pdf");
+        }
+//        ----------pdf end------ 
+
+        //        ---------csv start------
+        if ($request->downloadcsv) {
+            $model = $modelquery->get();
+
+            $filename = "paidinvoice.csv";
+            $fp = fopen('php://output', 'w');
+            header('Content-type: application/csv');
+            header('Content-Disposition: attachment; filename=' . $filename);
+            $header[0] = "Group Invoice ID";
+            $header[1] = "No of Booking";
+            $header[2] = "Totalprice";
+            $header[3] = "TotalTime";
+            $header[4] = "Client Name";
+            $header[5] = "Phone";            
+
+            fputcsv($fp, $header);
+
+            $data = array();
+            foreach ($model as $key => $val) {
+                $data['group_invoice_id'] = $val->group_invoice_id;
+                $data['count'] = $val->count;
+                $data['final_price'] = $val->final_price;
+                $data['total_duration'] = $val->total_duration;                
+                $data['name'] = $val->client->name;
+                $data['phone'] = $val->client->phone;
+                              
+                
+                fputcsv($fp, $data);
+            }
+            exit();
+        }
+
+//        ---------csv end------  
+        
+        
+        $models = $modelquery->paginate(25);
+        //pr($models);
+        //die();
+        return view('admin.invoice.paid', compact('models'));
+    }
+
+    public function create(Request $request) {
+        return view('admin.invoice.create');
+    }
+
+    public function store(Request $request) {
+        try {
+            $message = [
+                'amount_gbp.*' => 'please enter valid amount',
+            ];
+            $this->validate($request, [
+                'invoice_number' => 'required',
+                'reference' => 'required',
+                'description' => 'required',
+                'quantity' => 'required|numeric',
+                'unit_price' => 'required|numeric',
+                'amount_gbp' => 'required|numeric',
+                'name' => 'required',
+                'street' => 'required',
+                'city' => 'required',
+                'postcode' => 'required',
+                'country' => 'required',
+                    ], $message);
+
+            $model = new Invoice($request->all());
+            $model->create_by = Auth::user()->id;
+            if (isSuperAdmin()) {
+                $model->franchisees_id = selectedFranchisees();
+            } else {
+                $model->franchisees_id = Auth::user()->franchisees_id;
+            }
+            $model->save();
+
+
+            $request->session()->flash('success', 'Invoice has been successfully added!');
+
+            return redirect(route('invoice.show', $model->id));
+            //return redirect(route('invoice.index'));
+        } catch (Exception $e) {
+            $request->session()->flash('error', 'Oops something went wrong try again !');
+        }
+    }
+
+    public function show($id) {
+
+
+
+
+        $model = Booking::with('driver.user', 'client')->findOrFail($id);
+
+        if ($model->AllowDriverChage) {
+            $drivers = getDriverForBooking($model);
+        } else {
+            $drivers = false;
+        }
+
+        return view('admin.invoice.show', ['model' => $model, 'drivers' => $drivers]);
+    }
+
+    public function edit($id) {
+        $model = Booking::with('invoice')->find($id);
+        return view('admin.invoice.edit', compact('model'));
+    }
+
+    public function update(Request $request, $id) {
+
+        $model = Booking::findOrFail($id);
+
+
+
+        $this->validate($request, [
+            'edit_description.*' => 'required',
+            'edit_quantity.*' => 'required',
+            'edit_price.*' => 'required|numeric',
+            'edit_vat.*' => 'required|numeric',
+            'edit_amount.*' => 'required|numeric',
+                ], [
+            'edit_description.*' => 'Required',
+            'edit_quantity.*' => 'Required',
+            'edit_price.*' => 'Required',
+            'edit_vat.*' => 'Required',
+            'edit_amount.*' => 'Required',
+        ]);
+
+
+        DB::beginTransaction();
+        \App\InvoiceDetails::where('booking_id', $model->id)->delete();
+        try {
+            $customAmount = 0;
+            $qnty = $request->edit_quantity;
+            $price = $request->edit_price;
+            $edit_vat = $request->edit_vat;
+            $edit_amount = $request->edit_amount;
+            foreach ($request->edit_description as $key => $description) {
+                $feeModel = new \App\InvoiceDetails();
+                $feeModel->booking_id = $model->id;
+                $feeModel->comment = $description;
+                $feeModel->qnty = $qnty[$key];
+                $feeModel->price = $price[$key];
+                $feeModel->vat = $edit_vat[$key];
+                // $feeModel->amount = $edit_amount[$key];
+                $feeModel->amount = $price[$key] * $qnty[$key];
+                $feeModel->save();
+                $customAmount += $edit_amount[$key];
+            }
+
+            //echo $customAmount;
+            $finalamount = vatCalculation($model->final_price, 20, true) + $customAmount;
+//            echo $finalamount;
+//            die();
+            $model->invoice_price = $finalamount;
+            $model->save();
+
+            DB::commit();
+
+            $request->session()->flash('success', 'Invoice has been successfully Updated!');
+            return redirect(route('invoice.uninvoiced'));
+        } catch (Exception $e) {
+            DB::rollBack();
+            $request->session()->flash('error', 'Oops something went wrong try again !');
+        }
+
+
+        return redirect(route('invoice.edit', $model->id));
+
+
+
+
+
+
+
+
+//        $message = [
+//            'amount_gbp.*' => 'please enter valid amount',
+//        ];
+//        $this->validate($request, [
+//            'invoice_number' => 'required',
+//            'reference' => 'required',
+//            'description' => 'required',
+//            'quantity' => 'required|numeric',
+//            'unit_price' => 'required|numeric',
+//            'amount_gbp' => 'required|numeric',
+//            'name' => 'required',
+//            'street' => 'required',
+//            'city' => 'required',
+//            'postcode' => 'required',
+//            'country' => 'required',
+//                ], $message);
+
+
+        try {
+            $bookingModel = Booking::findOrFail($id);
+            $model = \App\InvoiceDetails::where('booking_id', $id)->delete();
+
+
+            if ($request->custom_entry) {
+                $invoice = new \App\InvoiceDetails();
+                $invoice->booking_id = $bookingModel->id;
+                $invoice->comment = $request->comment;
+                $invoice->amount = $request->custom_entry;
+                $invoice->save();
+            }
+            $request->session()->flash('success', 'Invoice has been successfully Updated!');
+            return redirect(route('invoice.edit', $bookingModel->id));
+        } catch (Exception $e) {
+            $request->session()->flash('error', 'Oops something went wrong try again !');
+        }
+    }
+
+    public function destroy($id) {
+//        $invoice = Invoice::findOrFail($id);
+//        $invoice->forceDelete();
+//        \Session::flash('success', 'Invoice has been successfully deleted!');
+//        return redirect()->back();
+    }
+
+    public function preview($id) { 
+        
+        $model = Booking::with('client', 'pickupLocation', 'franchisees')->findOrFail($id);
+        $pdf = PDF::loadView('admin.invoice.invoice-user-single', ['model' => $model], [], [
+                    'margin_top' => 0,
+                    'margin_left' => 0,
+                    'margin_right' => 0,
+                    'mirrorMargins' => true,
+                    'format' => 'A4'
+        ]);        
+        return $pdf->stream('document.pdf');
+    }
+
+    public function groupPreview($id) {
+        
+        $model = Booking::with('client', 'pickupLocation', 'franchisees')
+                ->where('group_invoice_id', $id)
+                ->where('payment_status', 0)
+                ->where('trip_status', 2)
+                ->where('invoiced', 1)
+                //->groupBy('group_invoice_id')
+                ->get();
+        //pr($model->toarray());
+        //exit;
+        $pdf = PDF::loadView('admin.invoice.invoice-group-preview', ['model' => $model], [], [
+                    'margin_top' => 0,
+                    'margin_left' => 0,
+                    'margin_right' => 0,
+                    'mirrorMargins' => true,
+                    'format' => 'A4'
+        ]);
+        return $pdf->stream('document.pdf');
+    }
+    public function groupInvoice(Request $request) {
+        
+        $this->validate($request, [
+         'booking_ids' => 'required',        
+       ]);
+        $booking_ids = $request->booking_ids;
+        
+        //pr($model->toarray());
+        //die();
+        
+        if($request->get('serialize')){  
+           
+            Booking::whereIn('id', $booking_ids)->update(['invoiced'=>1]);
+            $request->session()->flash('success', 'Invoice has been successfully Finalized!');
+            return redirect(route('invoice.uninvoiced'));
+        }
+        else{
+            
+        $model = Booking::with('client', 'pickupLocation', 'franchisees')
+                ->whereIn('id', $booking_ids)
+                ->where('payment_status', 0)
+                ->where('trip_status', 2)
+                ->get();
+        
+        
+        $pdf = PDF::loadView('admin.invoice.invoice-group-preview', ['model' => $model], [], [
+                    'margin_top' => 0,
+                    'margin_left' => 0,
+                    'margin_right' => 0,
+                    'mirrorMargins' => true,
+                    'format' => 'A4'
+        ]);
+        
+        $auto_generated_group_invoice_id = getAutoGeneratedGroupInvoiceId();
+        
+        
+        
+        Booking::whereIn('id', $booking_ids)->update(['group_invoice_id' => $auto_generated_group_invoice_id]);
+        
+        
+        //Booking::whereIn('id', $booking_ids)->update(['invoiced'=>1]);
+        //$request->session()->flash('success', 'Invoice has been successfully Finalized!');
+        //return redirect(route('invoice.uninvoiced'));    
+        
+        return $pdf->stream('document.pdf');
+        
+        }
+    }
+
+    public function downloada($id) {
+        $model = Invoice::with('franchisees')->findOrFail($id);
+        $pdf = PDF::loadView('admin.invoice.invoice', ['model' => $model], [], [
+                    'margin_top' => 0,
+                    'margin_left' => 0,
+                    'margin_right' => 0,
+                    'mirrorMargins' => true,
+                    'format' => 'A4'
+        ]);
+
+        return $pdf->download($model->order_id . ".pdf");
+    }
+
+    public function markPaid($id) {
+        $model = Invoice::findOrFail($id);
+        $model->mark_as_paid_by = Auth::user()->id;
+        $model->save();
+        \Session::flash('success', 'Invoice has been successfully Mark as paid!');
+        return redirect()->back();
+    }
+
+    private function unpaidBookingCount() {
+        $franchisees = session()->get('selectedFranchisees');
+        $query = \App\Booking::where('trip_status', 2)->where('payment_status', 0);
+        if ($franchisees) {
+            $query->where('franchisees_id', $franchisees);
+        }
+        return $query->count();
+    }
+
+    public function invoice($id) {
+       
+        //$model = Booking::with('client', 'pickupLocation', 'franchisees', 'invoice')->findOrFail($id);
+
+        $model = Booking::with('client','pickupLocation', 'franchisees')
+                ->where('group_invoice_id', $id)
+                //->where('payment_status', 0)
+                ->where('trip_status', 2)
+                ->where('invoiced', 1)
+                //->groupBy('group_invoice_id')
+                ->get();
+        
+      
+        // $model->invoiced = 1;
+        // $model->save();
+        $pdf = PDF::loadView('admin.invoice.invoice-user', ['model' => $model], [], [
+                    'margin_top' => 0,
+                    'margin_left' => 0,
+                    'margin_right' => 0,
+                    'mirrorMargins' => true,
+                    'format' => 'A4'
+        ]);
+
+
+        return $pdf->download($id. ".pdf");
+        //return $pdf->download("invoice.pdf");
+
+        return $pdf->stream('document.pdf');
+    }
+    
+    
+    public function invoiceView($id) {
+       
+        //$model = Booking::with('client', 'pickupLocation', 'franchisees', 'invoice')->findOrFail($id);
+
+        $model = Booking::with('client','pickupLocation', 'franchisees')
+                ->where('group_invoice_id', $id)
+                //->where('payment_status', 0)
+                ->where('trip_status', 2)
+                ->where('invoiced', 1)
+                //->groupBy('group_invoice_id')
+                ->get();
+        
+      
+        // $model->invoiced = 1;
+        // $model->save();
+        $pdf = PDF::loadView('admin.invoice.invoice-user', ['model' => $model], [], [
+                    'margin_top' => 0,
+                    'margin_left' => 0,
+                    'margin_right' => 0,
+                    'mirrorMargins' => true,
+                    'format' => 'A4'
+        ]);
+
+
+        return $pdf->download($id. ".pdf");
+        //return $pdf->download("invoice.pdf");
+
+        //return $pdf->stream('document.pdf');
+    }
+    
+
+    public function finalized(Request $request, $id) {
+                
+        $model = Booking::findOrFail($id);
+        $model->invoiced = 1;
+        $model->save();
+        $request->session()->flash('success', 'Invoice has been successfully Finalized!');
+        return redirect(route('invoice.uninvoiced'));
+    }
+    
+    
+    public function groupInvoiceEmail(Request $request, $id) {
+           
+        $model = Booking::with('client','pickupLocation', 'franchisees','clientEmail')
+                ->where('group_invoice_id', $id)               
+                ->where('trip_status', 2)
+                ->where('invoiced', 1)              
+                ->get();  
+        //pr($model->toArray());
+        //die();
+        
+        foreach ($model as $data){
+            $email_id = @$data->clientEmail->email;           
+        }
+        //pr($email_id);exit;
+        
+        $inputname= $id.'-'.date('d-m-Y-H-i-s');    
+        $pdf = PDF::loadView('admin.invoice.invoice-user', ['model' => $model], [], [
+                    'margin_top' => 0,
+                    'margin_left' => 0,
+                    'margin_right' => 0,
+                    'mirrorMargins' => true,
+                    'format' => 'A4'
+        ])->save(public_path('/images/groupinvoice/' . $inputname));
+        
+        Mail::send('emails.mail', ['model' => $model], function ($m) use ($pdf,$inputname, $email_id){
+            //pr($email_id);exit;
+            $m->from('hello@app.com', 'DMD');
+            $m->to($email_id)
+            ->subject('Contact Us')
+            ->attach(public_path('/images/groupinvoice/' . $inputname),[
+            //'as' =>'.pdf',
+            'mime' => 'application/pdf'
+            ]);           
+        });
+        $request->session()->flash('success', 'Mail has been successfully Send!');
+        return redirect(route('invoice.index'));        
+
+    }
+    
+}
